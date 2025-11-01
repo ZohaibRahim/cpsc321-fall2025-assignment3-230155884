@@ -7,6 +7,8 @@ static const int N = 5;
 static const char* names[] = { "P1","P2","P3","P4","P5" }; // the process identifiers 
 static const int   arrival[] = { 0,   1,   2,   3,   4 }; // the arrival time of each process (in time units). 
 static const int   burst[] = { 10,   5,   8,   6,   3 }; // the burst time (execution time in time units) of each process.
+static int CPU1_time = 0; // Current time for CPU 1
+static int CPU2_time = 0; // Current time for CPU 2
 
 
 // Structure to represent a process
@@ -111,8 +113,8 @@ int main(int argc, char* argv[]) {
 	pthread_t threads[2]; //creating 2 threads for 2 cores
 	int thread_index[2];
 
-	pthread_create(&threads[0], NULL, increment, NULL);
-	pthread_create(&threads[1], NULL, decrement, NULL);
+	pthread_create(&threads[0], NULL, NULL, NULL);
+	pthread_create(&threads[1], NULL, NULL, NULL);
 
 	for (int i = 0; i < 2; i++) {
 		thread_index[i] = i;
