@@ -7,8 +7,10 @@ static const int N = 5;
 static const char* names[] = { "P1","P2","P3","P4","P5" }; // the process identifiers 
 static const int   arrival[] = { 0,   1,   2,   3,   4 }; // the arrival time of each process (in time units). 
 static const int   burst[] = { 10,   5,   8,   6,   3 }; // the burst time (execution time in time units) of each process.
-static int CPU1_time = 0; // Current time for CPU 1
-static int CPU2_time = 0; // Current time for CPU 2
+static int waiting_times[N];    // Array to store waiting times of processes
+static int turnaround_times[N]; // Array to store turnaround times of processes
+static int core_allocated[N]; // Array to store allocted core number for each process
+static int completion_times[N]; // Array to store completion times of processes
 
 
 // Structure to represent a process
@@ -19,6 +21,8 @@ typedef struct Process {
 	int burst_time;   // Burst time (used for priority)
 	int waiting_time; // Waiting time
 	int turnaround_time; // Turnaround time
+	int CPU;          // CPU core allocated
+	int completed_time; // Completion time
 } Process;
 
 // Structure to represent the Priority Queue (Min-Heap)
@@ -97,15 +101,26 @@ Process threadSafeExtractMin(PriorityQueue* pq) {
 	return p;
 }
 
-// Implementation of multi-threaded scheduling logic
-void run_multi(Process* p1) {
-	
-}
-
 void executeProcess(Process p) {
 	printf("Process: %s Arrival: %d Burst: %d CPU: %d Waiting Time: %d Turnaround Time: %d\n", p.name, p.arrival_time, p.burst_time, );
 	// Simulate process execution with sleep (optional)
 	// sleep(p.burst_time);
+}
+
+// Thread functions for CPU core 1
+void* CPU0(void* arg) {
+	pthread_mutex_lock(&mutex); // Acquire the mutex lock
+
+	pthread_mutex_unlock(&mutex); // Release the mutex lock
+	return NULL;
+}
+
+// Thread functions for CPU core 2
+void* CPU1(void* arg) {
+	pthread_mutex_lock(&mutex); // Acquire the mutex lock
+
+	pthread_mutex_unlock(&mutex); // Release the mutex lock
+	return NULL;
 }
 
 int main(int argc, char* argv[]) {
@@ -113,8 +128,8 @@ int main(int argc, char* argv[]) {
 	pthread_t threads[2]; //creating 2 threads for 2 cores
 	int thread_index[2];
 
-	pthread_create(&threads[0], NULL, NULL, NULL);
-	pthread_create(&threads[1], NULL, NULL, NULL);
+	pthread_create(&threads[0], NULL, CPU0, NULL);
+	pthread_create(&threads[1], NULL, CPU1, NULL);
 
 	for (int i = 0; i < 2; i++) {
 		thread_index[i] = i;
@@ -135,6 +150,20 @@ int main(int argc, char* argv[]) {
 		processes[i].name = NAMES[i];
 		processes[i].arrival_time = ARRIVAL[i];
 		processes[i].burst_time = BURST[i];
+	}
+
+	//logic to call the functions
+
+	// Calculate turnaround times
+	for (int i = 0; i < N; i++) {
+		processes[i].turnaround_time = completion_times[i] - waiting_times[i];
+	}
+
+
+
+
+	for (int i = 0; i < N; i++) {
+		printf("Process: %s Arrival: %d Burst: %d CPU: %d Waiting Time: %d Turnaround Time: %d\n", processes[i].name, processes[i].arrival_time, processes[i].burst_time, processes[i].CPU, processes[i].waiting_time, processes[i].turnaround_time);
 	}
 
 	return 0;
