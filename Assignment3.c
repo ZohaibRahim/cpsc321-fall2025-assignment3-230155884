@@ -43,7 +43,7 @@ void swap(Process* p1, Process* p2) {
 }
 
 // Function to create a new priority queue
-PriorityQueue* createPriorityQueue(int capacity) {
+static PriorityQueue* createPriorityQueue(int capacity) {
 	PriorityQueue* pq = (PriorityQueue*)malloc(sizeof(PriorityQueue));
 	pq->capacity = capacity;
 	pq->arr = (Process*)malloc(pq->capacity * sizeof(Process));
@@ -151,24 +151,15 @@ int main(int argc, char* argv[]) {
 		processes[i].burst_time = BURST[i];
 	}
 
-
-
 	//logic to call the functions
 	createPriorityQueue(N); //creating priority queue of size N
-
 
 	// Calculate turnaround times
 	for (int i = 0; i < N; i++) {
 		processes[i].turnaround_time = completion_times[i] - waiting_times[i];
 	}
 
-
-
-
-	for (int i = 0; i < N; i++) {
-		printf("Process: %s Arrival: %d Burst: %d CPU: %d Waiting Time: %d Turnaround Time: %d\n", processes[i].name, processes[i].arrival_time, processes[i].burst_time, processes[i].core_allocated, processes[i].waiting_time, processes[i].turnaround_time);
-	}
-
+	// Calculate average waiting time and turnaround time
 	float avg_waiting_time = 0;
 	float avg_turnaround_time = 0;
 	for (int i = 0; i < N; i++) {
@@ -178,8 +169,15 @@ int main(int argc, char* argv[]) {
 	avg_waiting_time /= N;
 	avg_turnaround_time /= N;
 
+
+	for (int i = 0; i < N; i++) {
+		printf("Process: %s Arrival: %d Burst: %d CPU: %d Waiting Time: %d Turnaround Time: %d\n", processes[i].name, processes[i].arrival_time, processes[i].burst_time, processes[i].core_allocated, processes[i].waiting_time, processes[i].turnaround_time);
+	}
 	printf("Average waiting time: %.2f\n", avg_waiting_time / N);
 	printf("Average turnaround time: %.2f\n", avg_turnaround_time / N);
+
+	// Destroy the mutex
+	pthread_mutex_destroy(&mutex);
 
 	return 0;
 }
