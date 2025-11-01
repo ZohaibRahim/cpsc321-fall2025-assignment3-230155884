@@ -11,7 +11,10 @@ static int waiting_times[N];    // Array to store waiting times of processes
 static int turnaround_times[N]; // Array to store turnaround times of processes
 static int core_allocated[N]; // Array to store allocted core number for each process
 static int completion_times[N]; // Array to store completion times of processes
+static int CPU1_time = 0; // Total time consumed by CPU core 1
+static int CPU2_time = 0; // Total time consumed by CPU core 2
 
+pthread_mutex_t mutex; // Mutex for thread safety
 
 // Structure to represent a process
 typedef struct Process {
@@ -21,7 +24,7 @@ typedef struct Process {
 	int burst_time;   // Burst time (used for priority)
 	int waiting_time; // Waiting time
 	int turnaround_time; // Turnaround time
-	int CPU;          // CPU core allocated
+	int core_allocated;  // CPU core allocated
 	int completed_time; // Completion time
 } Process;
 
@@ -92,9 +95,10 @@ Process extractMin(PriorityQueue* pq) {
 	return root;
 }
 
-pthread_mutex_t mutex;
-
-Process threadSafeExtractMin(PriorityQueue* pq) {
+// Function to extract the minimum process safely using a mutex lock
+// Acquires the global mutex before calling extractMin, ensuring thread safety,
+// then releases the lock after the operation is complete.
+Process threadSafeExtractMin(PriorityQueue* pq, int CPU) {
 	pthread_mutex_lock(&mutex);
 	Process p = extractMin(pq);
 	pthread_mutex_unlock(&mutex);
@@ -102,24 +106,19 @@ Process threadSafeExtractMin(PriorityQueue* pq) {
 }
 
 void executeProcess(Process p) {
-	printf("Process: %s Arrival: %d Burst: %d CPU: %d Waiting Time: %d Turnaround Time: %d\n", p.name, p.arrival_time, p.burst_time, );
-	// Simulate process execution with sleep (optional)
-	// sleep(p.burst_time);
+	// Simulate process execution
 }
 
 // Thread functions for CPU core 1
 void* CPU0(void* arg) {
-	pthread_mutex_lock(&mutex); // Acquire the mutex lock
+	threadSafeExtractMin(NULL, 0); // Extract the minimum process safely
 
-	pthread_mutex_unlock(&mutex); // Release the mutex lock
 	return NULL;
 }
 
 // Thread functions for CPU core 2
 void* CPU1(void* arg) {
-	pthread_mutex_lock(&mutex); // Acquire the mutex lock
-
-	pthread_mutex_unlock(&mutex); // Release the mutex lock
+	threadSafeExtractMin(NULL,1); // Extract the minimum process safely
 	return NULL;
 }
 
@@ -152,7 +151,11 @@ int main(int argc, char* argv[]) {
 		processes[i].burst_time = BURST[i];
 	}
 
+
+
 	//logic to call the functions
+	createPriorityQueue(N); //creating priority queue of size N
+
 
 	// Calculate turnaround times
 	for (int i = 0; i < N; i++) {
@@ -163,8 +166,20 @@ int main(int argc, char* argv[]) {
 
 
 	for (int i = 0; i < N; i++) {
-		printf("Process: %s Arrival: %d Burst: %d CPU: %d Waiting Time: %d Turnaround Time: %d\n", processes[i].name, processes[i].arrival_time, processes[i].burst_time, processes[i].CPU, processes[i].waiting_time, processes[i].turnaround_time);
+		printf("Process: %s Arrival: %d Burst: %d CPU: %d Waiting Time: %d Turnaround Time: %d\n", processes[i].name, processes[i].arrival_time, processes[i].burst_time, processes[i].core_allocated, processes[i].waiting_time, processes[i].turnaround_time);
 	}
+
+	float avg_waiting_time = 0;
+	float avg_turnaround_time = 0;
+	for (int i = 0; i < N; i++) {
+		avg_waiting_time += (float)processes[i].waiting_time;
+		avg_turnaround_time += (float)processes[i].turnaround_time;
+	}
+	avg_waiting_time /= N;
+	avg_turnaround_time /= N;
+
+	printf("Average waiting time: %.2f\n", avg_waiting_time / N);
+	printf("Average turnaround time: %.2f\n", avg_turnaround_time / N);
 
 	return 0;
 }
