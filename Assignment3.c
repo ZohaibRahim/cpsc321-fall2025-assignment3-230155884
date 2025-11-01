@@ -3,14 +3,20 @@
 #include <pthread.h>
 #include <time.h>
 
-pthread_mutex_t mutex;
+static const int N = 5;
+static const char* names[] = { "P1","P2","P3","P4","P5" }; // the process identifiers 
+static const int   arrival[] = { 0,   1,   2,   3,   4 }; // the arrival time of each process (in time units). 
+static const int   burst[] = { 10,   5,   8,   6,   3 }; // the burst time (execution time in time units) of each process.
+
 
 // Structure to represent a process
 typedef struct Process {
-	static const int N = 5;
-	static const char* names[] = { "P1","P2","P3","P4","P5" }; // the process identifiers 
-	static const int   arrival[] = { 0,   1,   2,   3,   4 }; // the arrival time of each process (in time units). 
-	static const int   burst[] = { 10,   5,   8,   6,   3 }; // the burst time (execution time in time units) of each process. 
+	int index;         
+	const char* name; // Pointer to the process name string
+	int arrival_time; // Arrival time
+	int burst_time;   // Burst time (used for priority)
+	int waiting_time; // Waiting time
+	int turnaround_time; // Turnaround time
 } Process;
 
 // Structure to represent the Priority Queue (Min-Heap)
@@ -40,13 +46,6 @@ PriorityQueue* createPriorityQueue(int capacity) {
 int isEmpty(PriorityQueue* pq) {
 	return pq->size == 0;
 }
-
-void insertProcess(PriorityQueue* pq, Process p) {
-	if (pq->size == pq->capacity) {
-		// Optional: resize the array if needed
-		printf("Priority queue is full. Cannot insert.\n");
-		return;
-	}
 
 // Function to maintain the min - heap property from a given index
 void minHeapify(PriorityQueue * pq, int idx) {
@@ -87,6 +86,26 @@ Process extractMin(PriorityQueue* pq) {
 	return root;
 }
 
+pthread_mutex_t mutex;
+
+Process threadSafeExtractMin(PriorityQueue* pq) {
+	pthread_mutex_lock(&mutex);
+	Process p = extractMin(pq);
+	pthread_mutex_unlock(&mutex);
+	return p;
+}
+
+// Implementation of multi-threaded scheduling logic
+void run_multi(Process* p1) {
+	
+}
+
+void executeProcess(Process p) {
+	printf("Process: %s Arrival: %d Burst: %d CPU: %d Waiting Time: %d Turnaround Time: %d\n", p.name, p.arrival_time, p.burst_time, );
+	// Simulate process execution with sleep (optional)
+	// sleep(p.burst_time);
+}
+
 int main(int argc, char* argv[]) {
 
 	pthread_t threads[2]; //creating 2 threads for 2 cores
@@ -105,6 +124,16 @@ int main(int argc, char* argv[]) {
 
 	// Initialize the mutex
 	pthread_mutex_init(&mutex, NULL);
+
+
+	struct Process processes[N];
+
+	for (int i = 0; i < N; i++) {
+		processes[i].id = i;
+		processes[i].name = NAMES[i];
+		processes[i].arrival_time = ARRIVAL[i];
+		processes[i].burst_time = BURST[i];
+	}
 
 	return 0;
 }
