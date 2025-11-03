@@ -250,11 +250,7 @@ int main(int argc, char* argv[]) {
 
 	// Initialize the mutex
 	pthread_mutex_init(&mutex, NULL);
-
-
-
-	//logic to call the functions
-
+	
 	// Calculate turnaround times
 	for (int i = 0; i < N; i++) {
 		processes[i].turnaround_time = completion_times[i] - waiting_times[i];
