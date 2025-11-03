@@ -2,21 +2,27 @@
 #include <stdlib.h>
 #include <pthread.h>
 #include <time.h>
+#include <unistd.h>
+#include <stddef.h>
+#include <limits.h>
+#include <sched.h>
 
-static const int N = 5;
 static const char* names[] = { "P1","P2","P3","P4","P5" }; // the process identifiers 
 static const int   arrival[] = { 0,   1,   2,   3,   4 }; // the arrival time of each process (in time units). 
 static const int   burst[] = { 10,   5,   8,   6,   3 }; // the burst time (execution time in time units) of each process.
+
+enum { 
+	N = (int)(sizeof(names) / sizeof(names[0])) 
+}; // Number of processes
+
 static int waiting_times[N];    // Array to store waiting times of processes
 static int turnaround_times[N]; // Array to store turnaround times of processes
 static int core_allocated[N]; // Array to store allocted core number for each process
-static int completion_times[N]; // Array to store completion times of processes
 static int CPU1_time = 0; // Total time consumed by CPU core 1
 static int CPU2_time = 0; // Total time consumed by CPU core 2
 
 // Synchronization Primitives
 pthread_mutex_t mutex; // Mutex for thread safety
-pthread_mutex_t queue_mutex;        // Protects the ready_queue
 pthread_mutex_t time_mutex;         // Protects current_cpu_time
 
 // Structure to represent a process
@@ -33,7 +39,7 @@ typedef struct Process {
 
 //Process list of eligible processes
 struct Process master_process_list[N];
-int processesLeftInMasterList;
+int processesLeftInMasterList = 0;
 
 // Function to initialize the master process list based on arrival times/ eligible processes
 static void initialize_master_list() {
@@ -64,6 +70,50 @@ static void swap(Process* p1, Process* p2) {
 	Process temp = *p1;
 	*p1 = *p2;
 	*p2 = temp;
+}
+
+// Find the next (minimum) arrival among not-yet-moved processes
+static int next_arrival_time(void) {
+	int t = INT_MAX;
+	pthread_mutex_lock(&mutex);
+	for (int i = 0; i < processesLeftInMasterList; ++i) {
+		if (master_process_list[i].arrival_time < t)
+			t = master_process_list[i].arrival_time;
+	}
+	pthread_mutex_unlock(&mutex);
+	return (t == INT_MAX) ? -1 : t;
+}
+
+// Advance the earlier CPU clock to t so min(CPU1_time, CPU2_time) becomes t 
+static void advance_time_to_next(int t) {
+	if (t < 0) return;
+	pthread_mutex_lock(&time_mutex);
+	if (CPU1_time <= CPU2_time) {
+		if (CPU1_time < t) CPU1_time = t;
+	}
+	else {
+		if (CPU2_time < t) CPU2_time = t;
+	}
+	pthread_mutex_unlock(&time_mutex);
+}
+
+// Function to maintain the min - heap property from a given index
+static void minHeapify(PriorityQueue* pq, int idx) {
+	int smallest = idx;
+	int left = 2 * idx + 1;
+	int right = 2 * idx + 2;
+
+	if (left < pq->size && pq->arr[left].burst_time < pq->arr[smallest].burst_time) {
+		smallest = left;
+	}
+	if (right < pq->size && pq->arr[right].burst_time < pq->arr[smallest].burst_time) {
+		smallest = right;
+	}
+
+	if (smallest != idx) {
+		swap(&pq->arr[idx], &pq->arr[smallest]);
+		minHeapify(pq, smallest); // Recursively heapify the affected sub-tree
+	}
 }
 
 // Heap push for SJF by burst_time
@@ -105,8 +155,8 @@ static void deleteElement(int indexToDelete) {
 }
 
 // Function to check for newly arrived processes and add them to the eligible process list
-static void check_for_arrivals(PriorityQueue* pq, int current_cpu_time) {
-	pthread_mutex_lock(&queue_mutex);	// LOCK the shared queue before manipulation
+static void check_for_arrivals(PriorityQueue* pq, int now) {
+	pthread_mutex_lock(&mutex);	// LOCK the shared queue before manipulation
 
 	// Iterate through master list and move eligible processes
 	for (int i = 0; i < processesLeftInMasterList; ){
@@ -117,7 +167,7 @@ static void check_for_arrivals(PriorityQueue* pq, int current_cpu_time) {
 		else
 			i++; // Only increment if no deletion
 	}
-	pthread_mutex_unlock(&queue_mutex);	// UNLOCK the queue
+	pthread_mutex_unlock(&mutex);	// UNLOCK the queue
 }
 
 
@@ -130,29 +180,6 @@ static PriorityQueue* createPriorityQueue(int capacity) {
 	return pq;
 }
 
-// Function to check if the queue is empty
-int isEmpty(PriorityQueue* pq) {
-	return pq->size == 0;
-}
-
-// Function to maintain the min - heap property from a given index
-void minHeapify(PriorityQueue * pq, int idx) {
-	int smallest = idx;
-	int left = 2 * idx + 1;
-	int right = 2 * idx + 2;
-
-	if (left < pq->size && pq->arr[left].burst_time < pq->arr[smallest].burst_time) {
-		smallest = left;
-	}
-	if (right < pq->size && pq->arr[right].burst_time < pq->arr[smallest].burst_time) {
-		smallest = right;
-	}
-
-	if (smallest != idx) {
-		swap(&pq->arr[idx], &pq->arr[smallest]);
-		minHeapify(pq, smallest); // Recursively heapify the affected sub-tree
-	}
-}
 
 // Function to extract the minimum process safely using a mutex lock
 static Process threadSafeHeapPop(PriorityQueue* pq) {
@@ -162,120 +189,168 @@ static Process threadSafeHeapPop(PriorityQueue* pq) {
 	return p;
 }
 
-// Thread functions for CPU core 1
-static int* CPU0(void* arg) {
-	PriorityQueue* pq = (PriorityQueue*)arg;
-
-	// Loop to continuously try to extract processes until the queue is empty or a stop condition is met
-	while (1) {
-		pthread_mutex_lock(&time_mutex);
-		int now = CPU1_time;
-		pthread_mutex_unlock(&time_mutex);
-
-		check_for_arrivals(pq, now);
-
-		Process current = threadSafePop(pq);
-		if (current.index == -1) 
-			break;	// Queue was empty, all processes are done, breaking the loop
-
-		pthread_mutex_lock(&time_mutex);
-		if (CPU1_time < cur.arrival_time)
-			CPU1_time = current.arrival_time;
-		current.waiting_time = CPU1_time - current.arrival_time;
-		CPU1_time += current.burst_time;
-		current.completed_time = CPU1_time;
-		pthread_mutex_unlock(&time_mutex);
-
-		// Recording process metrics by index
-		int idx = current.index;
-		waiting_times[idx] = current.waiting_time;
-		turnaround_times[idx] = current.waiting_time + current.burst_time;
-		completion_times[idx] = current.completed_time;
-		core_allocated[idx] = 0;
-	}
-
-	return NULL;
+static void short_sleep(void) {
+	struct timespec ts = { .tv_sec = 0, .tv_nsec = 1000000 }; // 1 ms
+	nanosleep(&ts, NULL);
 }
 
-// Thread functions for CPU core 2
-static int* CPU1(void* arg) {
-	PriorityQueue* pq = (PriorityQueue*)arg;
+// Thread functions for CPU core 1
+static void* CPU0(void* arg) {
+    PriorityQueue* pq = (PriorityQueue*)arg;
 
-	// Loop to continuously try to extract processes until the queue is empty or a stop condition is met
-	while (1) {
+    for (;;) {
+		Process current = threadSafeHeapPop(pq);
+
+
+		int pending;
+		pthread_mutex_lock(&mutex);
+		pending = processesLeftInMasterList;
+		pthread_mutex_unlock(&mutex);
+
+		if (current.index == -1) {
+			if (pending > 0) {
+				int t = next_arrival_time();   // earliest arrival left
+				advance_time_to_next(t);       // move earlier CPU clock to t
+				continue;                      // then loop back to admit+pop again
+			}
+			break; // no heap items and nothing pending => done
+		}
+
+		// align this core's clock to arrival, compute waiting
 		pthread_mutex_lock(&time_mutex);
-		int now = CPU2_time;
+		if (CPU1_time < current.arrival_time) CPU1_time = current.arrival_time;
+		current.waiting_time = CPU1_time - current.arrival_time;
 		pthread_mutex_unlock(&time_mutex);
 
-		check_for_arrivals(pq, now);
+		// run non-preemptive
+		for (int t = 0; t < current.burst_time; t++) {
+			// advance this core's time by 1
+			pthread_mutex_lock(&time_mutex);
+			CPU1_time++;
+			int now = (CPU1_time > CPU2_time) ? CPU1_time : CPU2_time;
+			pthread_mutex_unlock(&time_mutex);
 
-		Process current = threadSafePop(pq);
-		if (current.index == -1)
-			break;	// Queue was empty, all processes are done, breaking the loop
+			// admit any newly-arrived jobs to the shared heap
+			check_for_arrivals(pq, now);
 
+			sched_yield();
+		}
+        pthread_mutex_lock(&time_mutex);
+        current.completed_time = CPU1_time;
+        pthread_mutex_unlock(&time_mutex);
+
+        // record metrics
+        int idx = current.index;
+        waiting_times[idx]    = current.waiting_time;
+        turnaround_times[idx] = current.completed_time - current.arrival_time;
+        core_allocated[idx]   = 0;
+    }
+    return NULL;
+}
+
+static void* CPU1(void* arg) {
+    PriorityQueue* pq = (PriorityQueue*)arg;
+
+    for (;;) {
+		Process current = threadSafeHeapPop(pq);
+
+		int pending;
+		pthread_mutex_lock(&mutex);
+		pending = processesLeftInMasterList;
+		pthread_mutex_unlock(&mutex);
+
+		if (current.index == -1) {
+			if (pending > 0) {
+				int t = next_arrival_time();   // earliest arrival left
+				advance_time_to_next(t);       // move earlier CPU clock to t
+				continue;                      // then loop back to admit+pop again
+			}
+			break; // no heap items and nothing pending -> done
+		}
+
+		// align this core's clock to arrival, compute waiting
 		pthread_mutex_lock(&time_mutex);
-		if (CPU2_time < cur.arrival_time)
-			CPU2_time = current.arrival_time;
+		if (CPU2_time < current.arrival_time) CPU2_time = current.arrival_time;
 		current.waiting_time = CPU2_time - current.arrival_time;
-		CPU2_time += current.burst_time;
-		current.completed_time = CPU2_time;
 		pthread_mutex_unlock(&time_mutex);
 
-		// Recording process metrics by index
-		int idx = current.index;
-		waiting_times[idx] = current.waiting_time;
-		turnaround_times[idx] = current.waiting_time + current.burst_time;
-		completion_times[idx] = current.completed_time;
-		core_allocated[idx] = 1;
-	}
+		// run non-preemptive
+		for (int t = 0; t < current.burst_time; t++) {
+			pthread_mutex_lock(&time_mutex);
+			CPU2_time++;
+			int now = (CPU1_time > CPU2_time) ? CPU1_time : CPU2_time;
+			pthread_mutex_unlock(&time_mutex);
 
-	return NULL;
+			check_for_arrivals(pq, now);
+
+			sched_yield();
+
+			}
+
+        pthread_mutex_lock(&time_mutex);
+        current.completed_time = CPU2_time;
+        pthread_mutex_unlock(&time_mutex);
+
+        int idx = current.index;
+        waiting_times[idx]    = current.waiting_time;
+		turnaround_times[idx] = current.completed_time - current.arrival_time;
+        core_allocated[idx]   = 1;
+    }
+    return NULL;
 }
 
 
 int main(int argc, char* argv[]) {
 
 	pthread_mutex_init(&mutex, NULL);
-	pthread_mutex_init(&queue_mutex, NULL);
 	pthread_mutex_init(&time_mutex, NULL);
+
+	processesLeftInMasterList = 0;
 
 	initialize_master_list(); //initializing master process list
 	PriorityQueue* pq = createPriorityQueue(N); //creating priority queue of size N for eligible processes
 
+	// Find the earliest arrival time
+	int earliest = arrival[0];
+	for (int i = 1; i < N; ++i)
+		if (arrival[i] < earliest)
+			earliest = arrival[i];
+
+	check_for_arrivals(pq, earliest);
+	advance_time_to_next(earliest);
+
+	
 	pthread_t t0, t1;
 	pthread_create(&t0, NULL, CPU0, (void*)pq);
 	pthread_create(&t1, NULL, CPU1, (void*)pq);
+
 	pthread_join(t0, NULL);
 	pthread_join(t1, NULL);
 
-	// Initialize the mutex
-	pthread_mutex_init(&mutex, NULL);
-	
-	// Calculate turnaround times
-	for (int i = 0; i < N; i++) {
-		processes[i].turnaround_time = completion_times[i] - waiting_times[i];
-	}
-
 	// Calculate average waiting time and turnaround time
-	double avg_waiting_time = 0;
-	double avg_turnaround_time = 0;
+	double avg_waiting_time = 0.0;
+	double avg_turnaround_time = 0.0;
 
 	for (int i = 0; i < N; i++) {
-		avg_waiting_time += (double)processes[i].waiting_time;
-		avg_turnaround_time += (double)processes[i].turnaround_time;
+		avg_waiting_time += waiting_times[i];
+		avg_turnaround_time += turnaround_times[i];
 	}
 	avg_waiting_time /= N;
 	avg_turnaround_time /= N;
 
 
 	for (int i = 0; i < N; i++) {
-		printf("Process: %s Arrival: %d Burst: %d CPU: %d Waiting Time: %d Turnaround Time: %d\n", processes[i].name, processes[i].arrival_time, processes[i].burst_time, processes[i].core_allocated, processes[i].waiting_time, processes[i].turnaround_time);
+		printf("Process: %s Arrival: %d Burst: %d CPU: %d Waiting Time: %d Turnaround Time: %d\n", names[i], arrival[i], burst[i], core_allocated[i], waiting_times[i], turnaround_times[i]);
 	}
-	printf("Average waiting time: %.2f\n", avg_waiting_time / N);
-	printf("Average turnaround time: %.2f\n", avg_turnaround_time / N);
+	printf("Average waiting time: %.2f\n", avg_waiting_time);
+	printf("Average turnaround time: %.2f\n", avg_turnaround_time);
 
 	// Destroy the mutex
+	pthread_mutex_destroy(&time_mutex);
 	pthread_mutex_destroy(&mutex);
-
+	if (pq) {
+		free(pq->arr);
+		free(pq);
+	}
 	return 0;
 }
