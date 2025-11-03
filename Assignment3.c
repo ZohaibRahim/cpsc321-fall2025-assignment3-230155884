@@ -40,6 +40,8 @@ typedef struct Process {
 //Process list of eligible processes
 struct Process master_process_list[N];
 int processesLeftInMasterList = 0;
+pthread_cond_t ready_cv;   // signals "ready queue changed"
+
 
 // Function to initialize the master process list based on arrival times/ eligible processes
 static void initialize_master_list() {
@@ -95,6 +97,11 @@ static void advance_time_to_next(int t) {
 		if (CPU2_time < t) CPU2_time = t;
 	}
 	pthread_mutex_unlock(&time_mutex);
+
+	// Let waiters re-check arrivals/pop
+	pthread_mutex_lock(&mutex);
+	pthread_cond_broadcast(&ready_cv);
+	pthread_mutex_unlock(&mutex);
 }
 
 // Function to maintain the min - heap property from a given index
@@ -159,13 +166,19 @@ static void check_for_arrivals(PriorityQueue* pq, int now) {
 	pthread_mutex_lock(&mutex);	// LOCK the shared queue before manipulation
 
 	// Iterate through master list and move eligible processes
+	int pushed = 0;
 	for (int i = 0; i < processesLeftInMasterList; ){
 		if (master_process_list[i].arrival_time <= now) {
 			heapPush(pq, master_process_list[i]); // Add to priority queue
 			deleteElement(i);
+			pushed = 1;
 		}
 		else
 			i++; // Only increment if no deletion
+	}
+
+	if (pushed) {
+		pthread_cond_broadcast(&ready_cv);  // wake idle cores
 	}
 	pthread_mutex_unlock(&mutex);	// UNLOCK the queue
 }
@@ -208,13 +221,20 @@ static void* CPU0(void* arg) {
 		pthread_mutex_unlock(&mutex);
 
 		if (current.index == -1) {
+			// Check if more processes are expected in the future
+			pthread_mutex_lock(&mutex);
+			int pending = processesLeftInMasterList;
+			// If pending, wait until someone pushes to heap or time is advanced
 			if (pending > 0) {
-				int t = next_arrival_time();   // earliest arrival left
-				advance_time_to_next(t);       // move earlier CPU clock to t
-				continue;                      // then loop back to admit+pop again
+				// Wait releases 'mutex' and re-acquires before return
+				pthread_cond_wait(&ready_cv, &mutex);
+				pthread_mutex_unlock(&mutex);
+				continue;  // re-loop: admit arrivals, pop again
 			}
-			break; // no heap items and nothing pending => done
+			pthread_mutex_unlock(&mutex);
+			break; // nothing pending and heap empty -> done
 		}
+
 
 		// align this core's clock to arrival, compute waiting
 		pthread_mutex_lock(&time_mutex);
@@ -260,13 +280,20 @@ static void* CPU1(void* arg) {
 		pthread_mutex_unlock(&mutex);
 
 		if (current.index == -1) {
+			// Check if more processes are expected in the future
+			pthread_mutex_lock(&mutex);
+			int pending = processesLeftInMasterList;
+			// If pending, wait until someone pushes to heap or time is advanced
 			if (pending > 0) {
-				int t = next_arrival_time();   // earliest arrival left
-				advance_time_to_next(t);       // move earlier CPU clock to t
-				continue;                      // then loop back to admit+pop again
+				// Wait releases 'mutex' and re-acquires before return
+				pthread_cond_wait(&ready_cv, &mutex);
+				pthread_mutex_unlock(&mutex);
+				continue;  // re-loop: admit arrivals, pop again
 			}
-			break; // no heap items and nothing pending -> done
+			pthread_mutex_unlock(&mutex);
+			break; // nothing pending and heap empty -> done
 		}
+
 
 		// align this core's clock to arrival, compute waiting
 		pthread_mutex_lock(&time_mutex);
@@ -304,6 +331,7 @@ int main(int argc, char* argv[]) {
 
 	pthread_mutex_init(&mutex, NULL);
 	pthread_mutex_init(&time_mutex, NULL);
+	pthread_cond_init(&ready_cv, NULL);
 
 	processesLeftInMasterList = 0;
 
@@ -346,6 +374,7 @@ int main(int argc, char* argv[]) {
 	printf("Average turnaround time: %.2f\n", avg_turnaround_time);
 
 	// Destroy the mutex
+	pthread_cond_destroy(&ready_cv);
 	pthread_mutex_destroy(&time_mutex);
 	pthread_mutex_destroy(&mutex);
 	if (pq) {
