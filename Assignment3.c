@@ -13,6 +13,7 @@ static int core_allocated[N]; // Array to store allocted core number for each pr
 static int completion_times[N]; // Array to store completion times of processes
 static int CPU1_time = 0; // Total time consumed by CPU core 1
 static int CPU2_time = 0; // Total time consumed by CPU core 2
+static int current_cpu_time = 0; // Shared current CPU time across cores
 
 // Synchronization Primitives
 pthread_mutex_t mutex; // Mutex for thread safety
@@ -31,25 +32,28 @@ typedef struct Process {
 	int completed_time; // Completion time
 } Process;
 
-Process master_process_list[N];
+//Process list of eligible processes
+struct Process master_process_list[N];
+int processesLeftInMasterList;
+
+// Function to initialize the master process list based on arrival times/ eligible processes
 static void initialize_master_list() {
 	for (int i = 0; i < N; i++) {
-		master_process_list[i].index = i;
-		master_process_list[i].name = names[i];
-		master_process_list[i].arrival_time = arrival[i];
-		master_process_list[i].burst_time = burst[i];
+		if (arrival[i] <= current_cpu_time) {
+			master_process_list[i].index = i;
+			master_process_list[i].name = names[i];
+			master_process_list[i].arrival_time = arrival[i];
+			master_process_list[i].burst_time = burst[i];
 
-		// Initialize dynamic fields to 0 or a default value
-		master_process_list[i].waiting_time = 0;
-		master_process_list[i].turnaround_time = 0;
-		master_process_list[i].core_allocated = -1; // -1 means not allocated yet
-		master_process_list[i].completed_time = 0;
+			master_process_list[i].waiting_time = 0;
+			master_process_list[i].turnaround_time = 0;
+			master_process_list[i].core_allocated = -1; // -1 means not allocated yet
+			master_process_list[i].completed_time = 0;
 
-		// You can also use the global static arrays you defined earlier to link them:
-		// waiting_times[i] = 0; // This updates the external array
+			processesLeftInMasterList++;
+		}
 	}
 }
-
 
 // Structure to represent the Priority Queue (Min-Heap)
 typedef struct PriorityQueue {
@@ -59,11 +63,56 @@ typedef struct PriorityQueue {
 } PriorityQueue;
 
 // Helper function to swap two processes
-void swap(Process* p1, Process* p2) {
+static void swap(Process* p1, Process* p2) {
 	Process temp = *p1;
 	*p1 = *p2;
 	*p2 = temp;
 }
+
+static Process deleteElement(int indexToDelete) {
+	// Check if the index is valid
+	if (indexToDelete < 0 || indexToDelete >= processesLeftInMasterList) {
+		return;
+	}
+
+	// Shift elements to the left
+	for (int i = indexToDelete; i < processesLeftInMasterList - 1; i++) {
+		master_process_list[i] = master_process_list[i + 1];
+	}
+
+	processesLeftInMasterList--;
+	return master_process_list[indexToDelete];
+}
+
+Process eligibleProcesses[N];
+
+// Function to check for newly arrived processes and add them to the eligible process list
+static void check_for_arrivals() {
+	pthread_mutex_lock(&queue_mutex);	// LOCK the shared queue before manipulation
+	
+	// Iterate through master list and move eligible processes
+	int i = 0;	
+	while (processesLeftInMasterList>0 && master_process_list[0].arrival_time <= current_cpu_time) {
+		eligibleProcesses[i].index = master_process_list.i;
+		eligibleProcesses[i].name = master_process_list.names[i];
+		eligibleProcesses[i].arrival_time = master_process_list.arrival[i];
+		eligibleProcesses[i].burst_time = master_process_list.burst[i];
+
+		eligibleProcesses[i].waiting_time = 0;
+		eligibleProcesses[i].turnaround_time = 0;
+		eligibleProcesses[i].core_allocated = -1; // -1 means not allocated yet
+		eligibleProcesses[i].completed_time = 0;
+
+		processesLeftInMasterList++;
+	
+		deleteElement(i);
+
+		i++;
+	}
+
+	pthread_mutex_unlock(&queue_mutex);	// UNLOCK the queue
+}
+
 
 // Function to create a new priority queue
 static PriorityQueue* createPriorityQueue(int capacity) {
@@ -199,15 +248,7 @@ int main(int argc, char* argv[]) {
 	// Initialize the mutex
 	pthread_mutex_init(&mutex, NULL);
 
-
-	struct Process processes[N];
-
-	for (int i = 0; i < N; i++) {
-		processes[i].id = i;
-		processes[i].name = NAMES[i];
-		processes[i].arrival_time = ARRIVAL[i];
-		processes[i].burst_time = BURST[i];
-	}
+	initialize_master_list(); //initializing master process list
 
 	//logic to call the functions
 	createPriorityQueue(N); //creating priority queue of size N
