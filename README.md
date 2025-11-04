@@ -4,8 +4,7 @@
 **University of Northern British Columbia**  
 **Course:** Operating Systems (Fall 2025)  
 **Instructor:** Dr. Sajal Saha  
-**Student:** [Your Full Name]  
-**Student ID:** [Your Student ID]  
+**Student:** Zohaib Rahim 
 
 ---
 
