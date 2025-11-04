@@ -42,7 +42,7 @@ static const char* names[]  = {"P1","P2","P3","P4","P5"};
 static const int   arrival[] = {0, 1, 2, 3, 4};
 static const int   burst[]   = {10, 5, 8, 6, 3};x 
 ```
-## 🧩 Input Format
+## 🧩 Output Format
 Process: P1 Arrival: 0 Burst: 10 CPU: 0 Waiting Time: 0 Turnaround Time: 10
 Process: P2 Arrival: 1 Burst: 5  CPU: 1 Waiting Time: 0 Turnaround Time: 5
 Process: P3 Arrival: 2 Burst: 8  CPU: 0 Waiting Time: 8 Turnaround Time: 16
