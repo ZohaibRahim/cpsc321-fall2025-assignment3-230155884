@@ -1,1 +1,44 @@
 # cpsc321-fall2025-assignment3-230155884
+
+# CPSC 321 - Assignment 3  
+**University of Northern British Columbia**  
+**Course:** Operating Systems (Fall 2025)  
+**Instructor:** Dr. Sajal Saha  
+**Student:** [Your Full Name]  
+**Student ID:** [Your Student ID]  
+
+---
+
+## 🧠 Overview
+This project implements a **multi-CPU scheduling simulation** using the **Shortest Job First (SJF)** algorithm with **thread synchronization** (mutexes/semaphores).  
+Each CPU is represented by a thread that selects and executes processes from a shared ready queue while ensuring safe concurrent access.
+
+---
+
+## 🎯 Objectives
+- Extend CPU scheduling algorithms to support synchronization.
+- Simulate multi-core scheduling using threads.
+- Prevent race conditions with mutex/semaphore protection.
+- Calculate process waiting and turnaround times.
+- Demonstrate average performance metrics.
+
+---
+
+## ⚙️ Features
+- Two worker threads represent two CPU cores.
+- Shared ready queue protected by mutex.
+- Non-preemptive **Shortest Job First (SJF)** scheduling.
+- Dynamic handling of any number of processes (`N`).
+- Detailed per-process output with assigned CPU, waiting time, and turnaround time.
+- Calculation of average waiting and turnaround times.
+
+---
+
+## 🧩 Input Format
+All process data is defined statically inside the program:
+
+```c
+static const int N = 5;
+static const char* names[]  = {"P1","P2","P3","P4","P5"};
+static const int   arrival[] = {0, 1, 2, 3, 4};
+static const int   burst[]   = {10, 5, 8, 6, 3};
